@@ -190,10 +190,7 @@ pub fn build(b: *Build) !void {
         stdib_test.expectStdOutEqual("Standard library test suite passed.\n");
         test_step.dependOn(&stdib_test.step);
 
-        b.cache_root.handle.makeDir("tmp") catch |err| switch (err) {
-            error.PathAlreadyExists => {}, // nice
-            else => |e| return e,
-        };
+        try b.cache_root.handle.createDirPath(b.graph.io, "tmp");
         const runlib_test = b.addRunArtifact(exe);
 
         // execute in the .zig-cache directory so we have a "safe" playfield

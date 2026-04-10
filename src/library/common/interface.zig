@@ -19,19 +19,25 @@ fn MapSelfType(comptime T: type, comptime NewSelf: type) type {
 fn GeneralizedFunc(comptime F: type) type {
     const f_in = @typeInfo(F).@"fn";
 
-    var f_out = f_in;
-    f_out.params = &.{};
+    const Fn = std.builtin.Type.Fn;
+    var f_out_params: [f_in.params.len]type = undefined;
+    var param_attrs: [f_in.params.len]Fn.Param.Attributes = undefined;
 
-    for (f_in.params) |pi| {
+    for (f_in.params, f_out_params, param_attrs) |pi, *out_param, *param_attr| {
         var po = pi;
         po.type = MapSelfType(
             pi.type orelse @compileError("No support for generic parameters!"),
             anyopaque,
         );
-        f_out.params = f_out.params ++ [_]std.builtin.Type.Fn.Param{po};
+        out_param.* = po.type;
+        param_attr.* = .{ .@"noalias" = po.is_noalias };
     }
-
-    return @Type(.{ .@"fn" = f_out });
+    return @Fn(
+        &f_out_params,
+        &param_attrs,
+        f_in.return_type orelse void,
+        .{ .@"callconv" = f_in.calling_convention, .varargs = f_in.is_var_args },
+    );
 }
 
 pub fn Interfaces(comptime spec: anytype) type {
@@ -86,29 +92,27 @@ pub fn Interfaces(comptime spec: anytype) type {
         const Intf = @This();
 
         pub const VTable: type = blk: {
-            var vti = Struct{
-                .backing_integer = null,
-                .decls = &.{},
-                .fields = &.{},
-                .is_tuple = false,
-                .layout = .auto,
-            };
+            var field_names: [functions.len][]const u8 = undefined;
+            var field_attrs: [functions.len]std.builtin.Type.StructField.Attributes = undefined;
+            var field_types: [functions.len]type = undefined;
 
-            for (functions) |func| {
-                vti.fields = vti.fields ++ &[_]StructField{
-                    .{
-                        .name = func.name,
-                        .type = *const func.generic_type,
-                        .default_value_ptr = null,
-                        .is_comptime = false,
-                        .alignment = @alignOf(*const func.generic_type),
-                    },
+            for (functions, field_names, field_attrs, field_types) |func, *name, *attrs, *field_type| {
+                name.* = func.name;
+                attrs.* = .{
+                    .@"align" = @alignOf(*const func.generic_type),
+                    .@"comptime" = false,
+                    .default_value_ptr = null,
                 };
+                field_type.* = *const func.generic_type;
             }
 
-            break :blk @Type(.{
-                .@"struct" = vti,
-            });
+            break :blk @Struct(
+                .auto,
+                null,
+                &field_names,
+                &field_types,
+                &field_attrs,
+            );
         };
 
         pub fn createVTable(comptime T: type) *const VTable {

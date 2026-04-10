@@ -4,8 +4,8 @@
     .fingerprint = 0xe0c26edfbdb0efcc,
     .dependencies = .{
         .args = .{
-            .url = "git+https://github.com/ikskuh/zig-args?ref=HEAD#e060ac80c244e9675471b6d213b22ddc83cc8f98",
-            .hash = "args-0.0.0-CiLiqo_RAADz2TiHUzG5-0Mk7IZHR-h1SZgUrb_k4c7d",
+            .url = "git+https://github.com/UnusualEgg/zig-args/?ref=zig-master#de179042918f4d8d2d30620e0855e3a34d8733da",
+            .hash = "args-0.0.0-CiLiqszTAAAOEF0hB7KqqNoAaZCN9xjNuNGkfd2fZJgF",
         },
         .any_pointer = .{
             .url = "git+https://github.com/ikskuh/any-pointer.git#0f9725a324d48239d1d7e07b7f270b0a87be576a",

@@ -4,7 +4,7 @@ const lola = @import("lola");
 const args_parser = @import("args");
 const build_options = @import("build_options");
 
-var gpa_state = std.heap.GeneralPurposeAllocator(.{}).init;
+var gpa_state = std.heap.DebugAllocator(.{}).init;
 const gpa = gpa_state.allocator();
 
 // This is our global object pool that is back-referenced
@@ -14,23 +14,23 @@ pub const ObjectPool = lola.runtime.objects.ObjectPool([_]type{
     lola.libs.runtime.LoLaDictionary,
 });
 
-pub fn main() !u8 {
+pub fn main(init: std.process.Init) !u8 {
     defer _ = gpa_state.deinit();
 
-    var cli = args_parser.parseWithVerbForCurrentProcess(struct {}, CliVerb, gpa, .print) catch return 1;
+    var cli = args_parser.parseWithVerbForCurrentProcess(struct {}, CliVerb, gpa, .print, init.minimal.args, init.io) catch return 1;
     defer cli.deinit();
 
     const verb = cli.verb orelse {
-        try print_usage();
+        try print_usage(init.io);
         return 1;
     };
 
     switch (verb) {
-        .compile => |options| return try compile(options, cli.positionals),
-        .dump => |options| return try disassemble(options, cli.positionals),
-        .run => |options| return try run(options, cli.positionals),
+        .compile => |options| return try compile(options, cli.positionals, init.io),
+        .dump => |options| return try disassemble(options, cli.positionals, init.io),
+        .run => |options| return try run(options, cli.positionals, init.io),
         .help => {
-            try print_usage();
+            try print_usage(init.io);
             return 0;
         },
         .version => {
@@ -43,7 +43,7 @@ pub fn main() !u8 {
     return 0;
 }
 
-pub fn print_usage() !void {
+pub fn print_usage(io: std.Io) !void {
     const usage_msg =
         \\Usage: lola [command] [options]
         \\
@@ -76,7 +76,7 @@ pub fn print_usage() !void {
         \\
     ;
     // \\  -S                      Intermixes the disassembly with the original source code if possible.
-    var stdout = std.fs.File.stderr().writer(&.{});
+    var stdout = std.Io.File.stderr().writer(io, &.{});
     try stdout.interface.writeAll(usage_msg);
 }
 
@@ -104,8 +104,8 @@ const DisassemblerCLI = struct {
     };
 };
 
-fn disassemble(options: DisassemblerCLI, files: []const []const u8) !u8 {
-    var stream_writer = std.fs.File.stdout().writer(&.{});
+fn disassemble(options: DisassemblerCLI, files: []const []const u8, io: std.Io) !u8 {
+    var stream_writer = std.Io.File.stdout().writer(io, &.{});
 
     if (files.len == 0) {
         try print_usage();
@@ -138,7 +138,7 @@ fn disassemble(options: DisassemblerCLI, files: []const []const u8) !u8 {
 
         var cu = blk: {
             var file = try std.fs.cwd().openFile(arg, .{ .mode = .read_only });
-            defer file.close();
+            defer file.close(io);
 
             var buffer: [4096]u8 = undefined;
             var reader = file.reader(&buffer);
@@ -191,9 +191,9 @@ const ModuleBuffer = extern struct {
     length: usize,
 };
 
-fn compile(options: CompileCLI, files: []const []const u8) !u8 {
+fn compile(options: CompileCLI, files: []const []const u8, io: std.Io) !u8 {
     if (files.len != 1) {
-        try print_usage();
+        try print_usage(io);
         return 1;
     }
 
@@ -210,7 +210,7 @@ fn compile(options: CompileCLI, files: []const []const u8) !u8 {
     defer if (options.output == null)
         allocator.free(outname);
 
-    const cu = compileFileToUnit(allocator, inname) catch |err| switch (err) {
+    const cu = compileFileToUnit(allocator, inname, io) catch |err| switch (err) {
         error.CompileError => return 1,
         else => |e| return e,
     };
@@ -218,7 +218,7 @@ fn compile(options: CompileCLI, files: []const []const u8) !u8 {
 
     if (!options.verify) {
         var file = try std.fs.cwd().createFile(outname, .{ .truncate = true, .read = false, .exclusive = false });
-        defer file.close();
+        defer file.close(io);
 
         var writer = file.writer(&.{});
         try cu.saveToStream(&writer.interface);
@@ -235,18 +235,18 @@ const RunCLI = struct {
     benchmark: bool = false,
 };
 
-fn autoLoadModule(allocator: std.mem.Allocator, options: RunCLI, file: []const u8) !lola.CompileUnit {
+fn autoLoadModule(allocator: std.mem.Allocator, options: RunCLI, file: []const u8, io: std.Io) !lola.CompileUnit {
     return switch (options.mode) {
-        .autodetect => loadModuleFromFile(allocator, file) catch |err| if (err == error.InvalidFormat)
-            try compileFileToUnit(allocator, file)
+        .autodetect => loadModuleFromFile(allocator, file, io) catch |err| if (err == error.InvalidFormat)
+            try compileFileToUnit(allocator, file, io)
         else
             return err,
-        .module => try loadModuleFromFile(allocator, file),
-        .source => try compileFileToUnit(allocator, file),
+        .module => try loadModuleFromFile(allocator, file, io),
+        .source => try compileFileToUnit(allocator, file, io),
     };
 }
 
-fn run(options: RunCLI, files: []const []const u8) !u8 {
+fn run(options: RunCLI, files: []const []const u8, io: std.Io) !u8 {
     if (files.len != 1) {
         try print_usage();
         return 1;
@@ -254,7 +254,7 @@ fn run(options: RunCLI, files: []const []const u8) !u8 {
 
     const allocator = gpa;
 
-    var cu = autoLoadModule(allocator, options, files[0]) catch |err| {
+    var cu = autoLoadModule(allocator, options, files[0], io) catch |err| {
         var stderr_writer = std.fs.File.stderr().writer(&.{});
         const stderr = &stderr_writer.interface;
 
@@ -437,12 +437,12 @@ fn run(options: RunCLI, files: []const []const u8) !u8 {
     return 0;
 }
 
-fn compileFileToUnit(allocator: std.mem.Allocator, fileName: []const u8) !lola.CompileUnit {
+fn compileFileToUnit(allocator: std.mem.Allocator, fileName: []const u8, io: std.Io) !lola.CompileUnit {
     const source = blk: {
-        var file = try std.fs.cwd().openFile(fileName, .{ .mode = .read_only });
-        defer file.close();
+        var file = try std.Io.Dir.cwd().openFile(io, fileName, .{ .mode = .read_only });
+        defer file.close(io);
         var reader_buffer: [4096]u8 = undefined;
-        var file_reader = file.reader(&reader_buffer);
+        var file_reader = file.reader(io, &reader_buffer);
         const reader = &file_reader.interface;
         var array = std.ArrayList(u8).empty;
         try reader.appendRemainingUnlimited(allocator, &array);
@@ -475,9 +475,9 @@ fn compileFileToUnit(allocator: std.mem.Allocator, fileName: []const u8) !lola.C
     return compile_unit;
 }
 
-fn loadModuleFromFile(allocator: std.mem.Allocator, fileName: []const u8) !lola.CompileUnit {
-    var file = try std.fs.cwd().openFile(fileName, .{ .mode = .read_only });
-    defer file.close();
+fn loadModuleFromFile(allocator: std.mem.Allocator, fileName: []const u8, io: std.Io) !lola.CompileUnit {
+    var file = try std.Io.Dir.cwd().openFile(io, fileName, .{ .mode = .read_only });
+    defer file.close(io);
 
     var reader_buffer: [4096]u8 = undefined;
     var reader = file.reader(&reader_buffer);
