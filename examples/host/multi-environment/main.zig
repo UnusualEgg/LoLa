@@ -28,8 +28,10 @@ pub const ObjectPool = lola.runtime.objects.ObjectPool([_]type{
     lola.runtime.Environment,
 });
 
-pub fn main() anyerror!u8 {
-    var gpa_state = std.heap.GeneralPurposeAllocator(.{}){};
+pub fn main(init: std.process.Init) anyerror!u8 {
+    const io = init.io;
+
+    var gpa_state = std.heap.DebugAllocator(.{}).init;
     defer _ = gpa_state.deinit();
 
     const allocator = gpa_state.allocator();
@@ -54,13 +56,13 @@ pub fn main() anyerror!u8 {
     var pool = ObjectPool.init(allocator);
     defer pool.deinit();
 
-    var server_env = try lola.runtime.Environment.init(allocator, &server_unit, pool.interface());
+    var server_env = try lola.runtime.Environment.init(allocator, io, &server_unit, pool.interface());
     defer server_env.deinit();
 
-    var client_a_env = try lola.runtime.Environment.init(allocator, &client_a_unit, pool.interface());
+    var client_a_env = try lola.runtime.Environment.init(allocator, io, &client_a_unit, pool.interface());
     defer client_a_env.deinit();
 
-    var client_b_env = try lola.runtime.Environment.init(allocator, &client_b_unit, pool.interface());
+    var client_b_env = try lola.runtime.Environment.init(allocator, io, &client_b_unit, pool.interface());
     defer client_b_env.deinit();
 
     for ([_]*lola.runtime.Environment{ &server_env, &client_a_env, &client_b_env }) |env| {

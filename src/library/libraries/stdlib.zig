@@ -15,13 +15,17 @@ const whitespace = [_]u8{
 
 const root = @import("root");
 
+fn defaultMilliTimestamp(io: std.Io) usize {
+    return @bitCast(std.Io.Timestamp.now(io, .real).toMilliseconds());
+}
+
 const milliTimestamp = if (builtin.os.tag == .freestanding)
     if (@hasDecl(root, "milliTimestamp"))
         root.milliTimestamp
     else
         @compileError("Please provide milliTimestamp in the root file for freestanding targets!")
 else
-    std.time.milliTimestamp;
+    defaultMilliTimestamp;
 
 /// empty compile unit for testing purposes
 const empty_compile_unit = lola.CompileUnit{
@@ -38,7 +42,7 @@ test "stdlib.install" {
     var pool = lola.runtime.objects.ObjectPool([_]type{}).init(std.testing.allocator);
     defer pool.deinit();
 
-    var env = try lola.runtime.Environment.init(std.testing.allocator, &empty_compile_unit, pool.interface());
+    var env = try lola.runtime.Environment.init(std.testing.allocator, std.testing.io, &empty_compile_unit, pool.interface());
     defer env.deinit();
 
     // TODO: Reinsert this
@@ -55,12 +59,14 @@ pub fn Sleep(env: *lola.runtime.Environment, call_context: lola.runtime.Context,
     const Context = struct {
         allocator: std.mem.Allocator,
         end_time: f64,
+        io: std.Io,
     };
 
     const ptr = try env.allocator.create(Context);
     ptr.* = Context{
         .allocator = env.allocator,
-        .end_time = @as(f64, @floatFromInt(milliTimestamp())) + 1000.0 * seconds,
+        .end_time = @as(f64, @floatFromInt(milliTimestamp(env.io))) + 1000.0 * seconds,
+        .io = env.io,
     };
 
     return lola.runtime.AsyncFunctionCall{
@@ -75,7 +81,7 @@ pub fn Sleep(env: *lola.runtime.Environment, call_context: lola.runtime.Context,
             fn execute(exec_context: lola.runtime.Context) anyerror!?lola.runtime.value.Value {
                 const ctx = exec_context.cast(*Context);
 
-                if (ctx.end_time < @as(f64, @floatFromInt(milliTimestamp()))) {
+                if (ctx.end_time < @as(f64, @floatFromInt(milliTimestamp(ctx.io)))) {
                     return .void;
                 } else {
                     return null;
@@ -184,7 +190,7 @@ pub fn TrimLeft(env: *const lola.runtime.Environment, context: lola.runtime.Cont
 
     return try lola.runtime.value.Value.initString(
         env.allocator,
-        std.mem.trimLeft(u8, str.contents, &whitespace),
+        std.mem.trimStart(u8, str.contents, &whitespace),
     );
 }
 
@@ -198,7 +204,7 @@ pub fn TrimRight(env: *const lola.runtime.Environment, context: lola.runtime.Con
 
     return try lola.runtime.value.Value.initString(
         env.allocator,
-        std.mem.trimRight(u8, str.contents, &whitespace),
+        std.mem.trimEnd(u8, str.contents, &whitespace),
     );
 }
 
@@ -584,11 +590,10 @@ pub fn Exp(env: *const lola.runtime.Environment, context: lola.runtime.Context, 
 }
 
 pub fn Timestamp(env: *const lola.runtime.Environment, context: lola.runtime.Context, args: []const lola.runtime.value.Value) !lola.runtime.value.Value {
-    _ = env;
     _ = context;
     if (args.len != 0)
         return error.InvalidArgs;
-    return lola.runtime.value.Value.initNumber(@as(f64, @floatFromInt(milliTimestamp())) / 1000.0);
+    return lola.runtime.value.Value.initNumber(@as(f64, @floatFromInt(milliTimestamp(env.io))) / 1000.0);
 }
 
 pub fn TypeOf(env: *const lola.runtime.Environment, context: lola.runtime.Context, args: []const lola.runtime.value.Value) !lola.runtime.value.Value {
@@ -659,14 +664,13 @@ pub fn Deserialize(env: *lola.runtime.Environment, context: lola.runtime.Context
 
     const serialized_string = try args[0].toString();
 
-    var stream = std.io.Reader.fixed(serialized_string);
+    var stream = std.Io.Reader.fixed(serialized_string);
 
     return try lola.runtime.value.Value.deserialize(&stream, env.allocator);
 }
 
 pub fn Random(env: *lola.runtime.Environment, context: lola.runtime.Context, args: []const lola.runtime.value.Value) !lola.runtime.value.Value {
     _ = context;
-    _ = env;
 
     var lower: f64 = 0;
     var upper: f64 = 1;
@@ -683,11 +687,11 @@ pub fn Random(env: *lola.runtime.Environment, context: lola.runtime.Context, arg
 
     var result: f64 = undefined;
     {
-        random_mutex.lock();
-        defer random_mutex.unlock();
+        try random_mutex.lock(env.io);
+        defer random_mutex.unlock(env.io);
 
         if (random == null) {
-            random = std.Random.DefaultPrng.init(@as(u64, @bitCast(@as(f64, @floatFromInt(milliTimestamp())))));
+            random = std.Random.DefaultPrng.init(@as(u64, @bitCast(@as(f64, @floatFromInt(milliTimestamp(env.io))))));
         }
 
         result = lower + (upper - lower) * random.?.random().float(f64);
@@ -698,7 +702,6 @@ pub fn Random(env: *lola.runtime.Environment, context: lola.runtime.Context, arg
 
 pub fn RandomInt(env: *lola.runtime.Environment, context: lola.runtime.Context, args: []const lola.runtime.value.Value) !lola.runtime.value.Value {
     _ = context;
-    _ = env;
 
     var lower: i32 = 0;
     var upper: i32 = std.math.maxInt(i32);
@@ -715,11 +718,11 @@ pub fn RandomInt(env: *lola.runtime.Environment, context: lola.runtime.Context, 
 
     var result: i32 = undefined;
     {
-        random_mutex.lock();
-        defer random_mutex.unlock();
+        try random_mutex.lock(env.io);
+        defer random_mutex.unlock(env.io);
 
         if (random == null) {
-            random = std.Random.DefaultPrng.init(@as(u64, @bitCast(@as(f64, @floatFromInt(milliTimestamp())))));
+            random = std.Random.DefaultPrng.init(@as(u64, @bitCast(@as(f64, @floatFromInt(milliTimestamp(env.io))))));
         }
 
         result = random.?.random().intRangeLessThan(i32, lower, upper);
@@ -728,5 +731,5 @@ pub fn RandomInt(env: *lola.runtime.Environment, context: lola.runtime.Context, 
     return lola.runtime.value.Value.initInteger(i32, result);
 }
 
-var random_mutex = std.Thread.Mutex{};
+var random_mutex = std.Io.Mutex.init;
 var random: ?std.Random.DefaultPrng = null;

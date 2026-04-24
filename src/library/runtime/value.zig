@@ -293,7 +293,7 @@ pub const Value = union(TypeId) {
     /// Note that if objects are deserialized you need to also deserialize the corresponding object pool
     pub fn deserialize(reader: *std.Io.Reader, allocator: std.mem.Allocator) (@TypeOf(reader.*).Error || error{ OutOfMemory, InvalidEnumTag, EndOfStream, NotSupported })!Self {
         const type_id_src = try reader.takeByte();
-        const type_id = try std.meta.intToEnum(TypeId, type_id_src);
+        const type_id = std.enums.fromInt(TypeId, type_id_src) orelse return error.InvalidEnumTag;
         return switch (type_id) {
             .void => .void,
             .number => blk: {

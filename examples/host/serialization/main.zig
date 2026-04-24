@@ -20,23 +20,25 @@ pub const ObjectPool = lola.runtime.objects.ObjectPool([_]type{
     lola.libs.runtime.LoLaList,
 });
 
-pub fn main() anyerror!void {
+pub fn main(init: std.process.Init) anyerror!void {
+    const io = init.io;
 
     // this will store our intermediate data
     var serialization_buffer: [4096]u8 = undefined;
 
     {
-        var gpa_state = std.heap.GeneralPurposeAllocator(.{}){};
+        var gpa_state = std.heap.DebugAllocator(.{}).init;
         defer _ = gpa_state.deinit();
 
         try run_serialization(
             gpa_state.allocator(),
+            io,
             &serialization_buffer,
         );
     }
 
     {
-        var stdout = std.fs.File.stdout().writer(&.{});
+        var stdout = std.Io.File.stdout().writer(io, &.{});
 
         try stdout.interface.writeAll("\n");
         try stdout.interface.writeAll("-----------------------------------\n");
@@ -46,17 +48,18 @@ pub fn main() anyerror!void {
     }
 
     {
-        var gpa_state = std.heap.GeneralPurposeAllocator(.{}){};
+        var gpa_state = std.heap.DebugAllocator(.{}).init;
         defer _ = gpa_state.deinit();
 
         try run_deserialization(
             gpa_state.allocator(),
+            io,
             &serialization_buffer,
         );
     }
 }
 
-fn run_serialization(allocator: std.mem.Allocator, serialization_buffer: []u8) !void {
+fn run_serialization(allocator: std.mem.Allocator, io: std.Io, serialization_buffer: []u8) !void {
     var diagnostics = lola.compiler.Diagnostics.init(allocator);
     defer {
         for (diagnostics.messages.items) |msg| {
@@ -71,7 +74,7 @@ fn run_serialization(allocator: std.mem.Allocator, serialization_buffer: []u8) !
     var pool = ObjectPool.init(allocator);
     defer pool.deinit();
 
-    var env = try lola.runtime.Environment.init(allocator, &compile_unit, pool.interface());
+    var env = try lola.runtime.Environment.init(allocator, io, &compile_unit, pool.interface());
     defer env.deinit();
 
     try env.installModule(lola.libs.std, lola.runtime.Context.null_pointer);
@@ -83,7 +86,7 @@ fn run_serialization(allocator: std.mem.Allocator, serialization_buffer: []u8) !
     const result = try vm.execute(405);
     std.debug.assert(result == .exhausted); // we didn't finish running our nice example
 
-    var stdout = std.fs.File.stdout().writer(&.{});
+    var stdout = std.Io.File.stdout().writer(io, &.{});
     try stdout.interface.writeAll("Suspend at\n");
     try vm.printStackTrace(&stdout.interface);
     try stdout.interface.flush();
@@ -117,7 +120,7 @@ fn run_serialization(allocator: std.mem.Allocator, serialization_buffer: []u8) !
     }
 }
 
-fn run_deserialization(allocator: std.mem.Allocator, serialization_buffer: []u8) !void {
+fn run_deserialization(allocator: std.mem.Allocator, io: std.Io, serialization_buffer: []u8) !void {
     var reader: std.Io.Reader = .fixed(serialization_buffer);
 
     // Trivial deserialization:
@@ -139,7 +142,7 @@ fn run_deserialization(allocator: std.mem.Allocator, serialization_buffer: []u8)
     // Both of these things cannot be done by a pure stream serialization.
     // Thus, we need to restore the constant part of the environment by hand and
     // install all functions as well:
-    var env = try lola.runtime.Environment.init(allocator, &compile_unit, object_pool.interface());
+    var env = try lola.runtime.Environment.init(allocator, io, &compile_unit, object_pool.interface());
     defer env.deinit();
 
     // Installs the functions back into the environment.
@@ -164,7 +167,7 @@ fn run_deserialization(allocator: std.mem.Allocator, serialization_buffer: []u8)
     var vm = try lola.runtime.VM.deserialize(allocator, &registry, &reader);
     defer vm.deinit();
 
-    var stdout = std.fs.File.stdout().writer(&.{});
+    var stdout = std.Io.File.stdout().writer(io, &.{});
     try stdout.interface.writeAll("Suspend at\n");
 
     try stdout.interface.print("restored state with {} bytes!\n", .{

@@ -30,8 +30,17 @@ fn GeneralizedFunc(comptime F: type) type {
         );
         f_out.params = f_out.params ++ [_]std.builtin.Type.Fn.Param{po};
     }
+    const Type = std.builtin.Type;
+    var param_types: [f_in.params.len]type = undefined;
+    var param_attrs: [param_types.len]Type.Fn.Param.Attributes = undefined;
+    const return_type: type = f_in.return_type.?;
+    const attrs: Type.Fn.Attributes = .{ .@"callconv" = f_in.calling_convention, .varargs = false };
+    for (f_out.params, 0..) |po, i| {
+        param_types[i] = po.type.?;
+        param_attrs[i] = .{ .@"noalias" = po.is_noalias };
+    }
 
-    return @Type(.{ .@"fn" = f_out });
+    return @Fn(&param_types, &param_attrs, return_type, attrs);
 }
 
 pub fn Interfaces(comptime spec: anytype) type {
@@ -86,29 +95,23 @@ pub fn Interfaces(comptime spec: anytype) type {
         const Intf = @This();
 
         pub const VTable: type = blk: {
-            var vti = Struct{
-                .backing_integer = null,
-                .decls = &.{},
-                .fields = &.{},
-                .is_tuple = false,
-                .layout = .auto,
-            };
-
-            for (functions) |func| {
-                vti.fields = vti.fields ++ &[_]StructField{
-                    .{
-                        .name = func.name,
-                        .type = *const func.generic_type,
-                        .default_value_ptr = null,
-                        .is_comptime = false,
-                        .alignment = @alignOf(*const func.generic_type),
-                    },
-                };
+            const Type = std.builtin.Type;
+            var field_names: [functions.len][]const u8 = undefined;
+            var field_types: [field_names.len]type = undefined;
+            var field_attrs: [field_names.len]Type.StructField.Attributes = undefined;
+            for (functions, 0..) |func, i| {
+                field_names[i] = func.name;
+                field_types[i] = *const func.generic_type;
+                field_attrs[i] = Type.StructField.Attributes{ .@"align" = @alignOf(*const func.generic_type) };
             }
 
-            break :blk @Type(.{
-                .@"struct" = vti,
-            });
+            break :blk @Struct(
+                .auto,
+                null,
+                &field_names,
+                &field_types,
+                &field_attrs,
+            );
         };
 
         pub fn createVTable(comptime T: type) *const VTable {

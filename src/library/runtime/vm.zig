@@ -1011,7 +1011,7 @@ fn runTest(comptime TestRunner: type) !void {
     var pool = TestPool.init(std.testing.allocator);
     defer pool.deinit();
 
-    var env = try Environment.init(std.testing.allocator, &cu, pool.interface());
+    var env = try Environment.init(std.testing.allocator, std.testing.io, &cu, pool.interface());
     defer env.deinit();
 
     var vm = try VM.init(std.testing.allocator, &env);

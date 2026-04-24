@@ -43,7 +43,7 @@ test "runtime.install" {
     var pool = GlobalObjectPool.init(std.testing.allocator);
     defer pool.deinit();
 
-    var env = try lola.runtime.Environment.init(std.testing.allocator, &empty_compile_unit, pool.interface());
+    var env = try lola.runtime.Environment.init(std.testing.allocator, std.testing.io, &empty_compile_unit, pool.interface());
     defer env.deinit();
 
     try env.installModule(@This(), lola.runtime.Context.null_pointer);
@@ -90,10 +90,9 @@ test "runtime.install" {
 // }
 
 pub fn Print(environment: *const lola.runtime.Environment, context: lola.runtime.Context, args: []const lola.runtime.value.Value) anyerror!lola.runtime.value.Value {
-    _ = environment;
     _ = context;
 
-    var stdout_writer = std.fs.File.stdout().writer(&.{});
+    var stdout_writer = std.Io.File.stdout().writer(environment.io, &.{});
     const stdout = &stdout_writer.interface;
     for (args) |value| {
         switch (value) {
@@ -124,17 +123,17 @@ pub fn ReadFile(environment: *const lola.runtime.Environment, context: lola.runt
 
     const path = try args[0].toString();
 
-    var file = std.fs.cwd().openFile(path, .{ .mode = .read_only }) catch return .void;
-    defer file.close();
+    var file = std.Io.Dir.cwd().openFile(environment.io, path, .{ .mode = .read_only }) catch return .void;
+    defer file.close(environment.io);
 
     // 2 GB
-    const contents = try file.readToEndAlloc(environment.allocator, 2 << 30);
+    var reader = file.reader(environment.io, &.{});
+    const contents = try reader.interface.allocRemaining(environment.allocator, .limited(2 << 30));
 
     return lola.runtime.value.Value.fromString(lola.runtime.value.String.initFromOwned(environment.allocator, contents));
 }
 
 pub fn FileExists(environment: *const lola.runtime.Environment, context: lola.runtime.Context, args: []const lola.runtime.value.Value) anyerror!lola.runtime.value.Value {
-    _ = environment;
     _ = context;
 
     if (args.len != 1)
@@ -142,14 +141,13 @@ pub fn FileExists(environment: *const lola.runtime.Environment, context: lola.ru
 
     const path = try args[0].toString();
 
-    var file = std.fs.cwd().openFile(path, .{ .mode = .read_only }) catch return lola.runtime.value.Value.initBoolean(false);
-    file.close();
+    var file = std.Io.Dir.cwd().openFile(environment.io, path, .{ .mode = .read_only }) catch return lola.runtime.value.Value.initBoolean(false);
+    file.close(environment.io);
 
     return lola.runtime.value.Value.initBoolean(true);
 }
 
 pub fn WriteFile(environment: *const lola.runtime.Environment, context: lola.runtime.Context, args: []const lola.runtime.value.Value) anyerror!lola.runtime.value.Value {
-    _ = environment;
     _ = context;
 
     if (args.len != 2)
@@ -158,10 +156,11 @@ pub fn WriteFile(environment: *const lola.runtime.Environment, context: lola.run
     const path = try args[0].toString();
     const value = try args[1].toString();
 
-    var file = try std.fs.cwd().createFile(path, .{});
-    defer file.close();
+    var file = try std.Io.Dir.cwd().createFile(environment.io, path, .{});
+    defer file.close(environment.io);
 
-    try file.writeAll(value);
+    var writer = file.writer(environment.io, &.{});
+    try writer.interface.writeAll(value);
 
     return .void;
 }

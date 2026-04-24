@@ -19,8 +19,10 @@ pub const ObjectPool = lola.runtime.objects.ObjectPool([_]type{
     lola.libs.runtime.LoLaList,
 });
 
-pub fn main() anyerror!u8 {
-    var gpa_state = std.heap.GeneralPurposeAllocator(.{}){};
+pub fn main(init: std.process.Init) anyerror!u8 {
+    const io = init.io;
+
+    var gpa_state = std.heap.DebugAllocator(.{}).init;
     defer _ = gpa_state.deinit();
 
     const allocator = gpa_state.allocator();
@@ -55,7 +57,7 @@ pub fn main() anyerror!u8 {
     // A environment stores global variables and provides functions
     // to the virtual machines. It is also a possible LoLa object that
     // can be passed into virtual machines.
-    var env = try lola.runtime.Environment.init(allocator, &compile_unit, pool.interface());
+    var env = try lola.runtime.Environment.init(allocator, io, &compile_unit, pool.interface());
     defer env.deinit();
 
     // Install both standard and runtime library into
@@ -104,7 +106,7 @@ pub fn main() anyerror!u8 {
             },
 
             // This means the virtual machine was suspended via a async function call.
-            .paused => std.Thread.sleep(100),
+            .paused => try io.sleep(.fromMicroseconds(100), .real),
         }
     }
 

@@ -16,7 +16,7 @@ var environment: lola.runtime.Environment = undefined;
 var vm: lola.runtime.vm.VM = undefined;
 var is_done: bool = true;
 
-pub fn milliTimestamp() usize {
+pub fn milliTimestamp(_: std.Io) usize {
     return JS.millis();
 }
 
@@ -313,7 +313,7 @@ pub const std_options = std.Options{
 };
 fn log(
     comptime message_level: std.log.Level,
-    comptime scope: @Type(.enum_literal),
+    comptime scope: @EnumLiteral(),
     comptime format: []const u8,
     args: anytype,
 ) void {

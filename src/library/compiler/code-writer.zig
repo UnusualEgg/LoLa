@@ -132,7 +132,7 @@ pub const CodeWriter = struct {
         if (self.code.items.len + data.len > std.math.maxInt(u32))
             return error.OutOfMemory;
 
-        try self.code.writer(self.allocator).writeAll(data);
+        try self.code.appendSlice(self.allocator, data);
     }
 
     /// Emits a label and marks a patch position if necessary

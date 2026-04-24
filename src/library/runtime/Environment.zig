@@ -42,7 +42,9 @@ functions: std.StringHashMap(Function),
 /// This is called when the destroyObject is called.
 destructor: ?*const fn (self: *Environment) void,
 
-pub fn init(allocator: std.mem.Allocator, compileUnit: *const CompileUnit, object_pool: ObjectPoolInterface) !Environment {
+io: std.Io,
+
+pub fn init(allocator: std.mem.Allocator, io: std.Io, compileUnit: *const CompileUnit, object_pool: ObjectPoolInterface) !Environment {
     var self = Environment{
         .allocator = allocator,
         .compileUnit = compileUnit,
@@ -50,6 +52,7 @@ pub fn init(allocator: std.mem.Allocator, compileUnit: *const CompileUnit, objec
         .scriptGlobals = undefined,
         .functions = undefined,
         .destructor = null,
+        .io = io,
     };
 
     self.scriptGlobals = try allocator.alloc(Value, compileUnit.globalCount);
@@ -703,7 +706,7 @@ test "Environment" {
     var pool = objects.ObjectPool([0]type{}).init(std.testing.allocator);
     defer pool.deinit();
 
-    var env = try Environment.init(std.testing.allocator, &cu, pool.interface());
+    var env = try Environment.init(std.testing.allocator, std.testing.io, &cu, pool.interface());
     defer env.deinit();
 
     std.debug.assert(env.scriptGlobals.len == 4);

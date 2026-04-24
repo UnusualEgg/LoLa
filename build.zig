@@ -182,7 +182,7 @@ pub fn build(b: *Build) !void {
         stdib_test.expectStdOutEqual("Standard library test suite passed.\n");
         test_step.dependOn(&stdib_test.step);
 
-        b.cache_root.handle.makeDir("tmp") catch |err| switch (err) {
+        b.cache_root.handle.createDir(b.graph.io, "tmp", .default_dir) catch |err| switch (err) {
             error.PathAlreadyExists => {}, // nice
             else => |e| return e,
         };

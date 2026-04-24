@@ -1,27 +1,26 @@
 const std = @import("std");
 
-pub fn main() !u8 {
-    var gpa = std.heap.GeneralPurposeAllocator(.{}){};
-    const alloc = gpa.allocator();
+pub fn main(init: std.process.Init) !u8 {
+    const alloc = init.gpa;
+    const io = init.io;
 
-    const argv = try std.process.argsAlloc(alloc);
-    defer std.process.argsFree(alloc, argv);
+    const argv = try init.minimal.args.toSlice(init.arena.allocator());
 
     if (argv.len != 3) {
         return 1;
     }
 
-    var src_dir = try std.fs.cwd().openDir(argv[1], .{ .iterate = true });
-    defer src_dir.close();
+    var src_dir = try std.Io.Dir.cwd().openDir(io, argv[1], .{ .iterate = true });
+    defer src_dir.close(io);
 
-    var dst_dir = try std.fs.cwd().openDir(argv[2], .{});
-    defer dst_dir.close();
+    var dst_dir = try std.Io.Dir.cwd().openDir(io, argv[2], .{});
+    defer dst_dir.close(io);
 
     var data = std.ArrayList(Series).empty;
 
     {
         var iter = src_dir.iterate();
-        while (try iter.next()) |entry| {
+        while (try iter.next(io)) |entry| {
             if (!std.mem.eql(u8, std.fs.path.extension(entry.name), ".csv"))
                 continue;
 
@@ -34,10 +33,10 @@ pub fn main() !u8 {
                 .data = undefined,
             };
 
-            var file = try src_dir.openFile(entry.name, .{ .mode = .read_only });
-            defer file.close();
+            var file = try src_dir.openFile(io, entry.name, .{ .mode = .read_only });
+            defer file.close(io);
 
-            series.data = try loadSeries(alloc, file);
+            series.data = try loadSeries(alloc, io, file);
 
             std.sort.block(DataPoint, series.data, {}, orderDataPoint);
 
@@ -45,27 +44,27 @@ pub fn main() !u8 {
         }
     }
 
-    try renderSeriesSet(dst_dir, "compile-ReleaseSafe.svg", data.items, "compile_time", filterReleaseSafe);
-    try renderSeriesSet(dst_dir, "setup-ReleaseSafe.svg", data.items, "setup_time", filterReleaseSafe);
-    try renderSeriesSet(dst_dir, "run-ReleaseSafe.svg", data.items, "run_time", filterReleaseSafe);
+    try renderSeriesSet(io, dst_dir, "compile-ReleaseSafe.svg", data.items, "compile_time", filterReleaseSafe);
+    try renderSeriesSet(io, dst_dir, "setup-ReleaseSafe.svg", data.items, "setup_time", filterReleaseSafe);
+    try renderSeriesSet(io, dst_dir, "run-ReleaseSafe.svg", data.items, "run_time", filterReleaseSafe);
 
-    try renderSeriesSet(dst_dir, "compile-ReleaseSmall.svg", data.items, "compile_time", filterReleaseSmall);
-    try renderSeriesSet(dst_dir, "setup-ReleaseSmall.svg", data.items, "setup_time", filterReleaseSmall);
-    try renderSeriesSet(dst_dir, "run-ReleaseSmall.svg", data.items, "run_time", filterReleaseSmall);
+    try renderSeriesSet(io, dst_dir, "compile-ReleaseSmall.svg", data.items, "compile_time", filterReleaseSmall);
+    try renderSeriesSet(io, dst_dir, "setup-ReleaseSmall.svg", data.items, "setup_time", filterReleaseSmall);
+    try renderSeriesSet(io, dst_dir, "run-ReleaseSmall.svg", data.items, "run_time", filterReleaseSmall);
 
-    try renderSeriesSet(dst_dir, "compile-ReleaseFast.svg", data.items, "compile_time", filterReleaseFast);
-    try renderSeriesSet(dst_dir, "setup-ReleaseFast.svg", data.items, "setup_time", filterReleaseFast);
-    try renderSeriesSet(dst_dir, "run-ReleaseFast.svg", data.items, "run_time", filterReleaseFast);
+    try renderSeriesSet(io, dst_dir, "compile-ReleaseFast.svg", data.items, "compile_time", filterReleaseFast);
+    try renderSeriesSet(io, dst_dir, "setup-ReleaseFast.svg", data.items, "setup_time", filterReleaseFast);
+    try renderSeriesSet(io, dst_dir, "run-ReleaseFast.svg", data.items, "run_time", filterReleaseFast);
 
     return 0;
 }
 
-pub fn renderSeriesSet(dst_dir: std.fs.Dir, file_name: []const u8, all_series: []Series, comptime field: []const u8, comptime filter: fn (series: Series) bool) !void {
-    var file = try dst_dir.createFile(file_name, .{});
-    defer file.close();
+pub fn renderSeriesSet(io: std.Io, dst_dir: std.Io.Dir, file_name: []const u8, all_series: []Series, comptime field: []const u8, comptime filter: fn (series: Series) bool) !void {
+    var file = try dst_dir.createFile(io, file_name, .{});
+    defer file.close(io);
 
     var writer_buffer: [4096]u8 = undefined;
-    var file_writer = file.writer(&writer_buffer);
+    var file_writer = file.writer(io, &writer_buffer);
     const writer = &file_writer.interface;
 
     var start_time: u128 = std.math.maxInt(u128);
@@ -201,9 +200,9 @@ pub const Series = struct {
     data: []DataPoint,
 };
 
-pub fn loadSeries(allocator: std.mem.Allocator, file: std.fs.File) ![]DataPoint {
+pub fn loadSeries(allocator: std.mem.Allocator, io: std.Io, file: std.Io.File) ![]DataPoint {
     var line_buffer: [4096]u8 = undefined;
-    var file_reader = file.reader(&line_buffer);
+    var file_reader = file.reader(io, &line_buffer);
     const reader = &file_reader.interface;
 
     const first_line = reader.takeDelimiterExclusive('\n') catch |e| if (e == error.EndOfFile) return error.UnexpectedData else return e;

@@ -51,7 +51,7 @@ pub fn read(self: *Decoder, comptime T: type) !T {
     switch (T) {
         u8, u16, u32 => return std.mem.readInt(T, &data, .little),
         f64 => return @as(f64, @bitCast(data)),
-        ir.InstructionName => return try std.meta.intToEnum(ir.InstructionName, data[0]),
+        ir.InstructionName => return std.enums.fromInt(ir.InstructionName, data[0]) orelse error.InvalidEnumTag,
         else => @compileError("Unsupported type " ++ @typeName(T) ++ " for Decoder.read!"),
     }
 }
