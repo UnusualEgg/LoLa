@@ -1083,6 +1083,8 @@ test "VM invalid jump panic" {
 }
 
 test "host call" {
+    const io = std.testing.io;
+
     const src = "function hello() {return \"world\";}";
     var diag: lola.compiler.Diagnostics = .init(std.testing.allocator);
     defer diag.deinit();
@@ -1092,7 +1094,7 @@ test "host call" {
     var pool = TestPool.init(std.testing.allocator);
     defer pool.deinit();
 
-    var env = try Environment.init(std.testing.allocator, &cu, pool.interface());
+    var env = try Environment.init(std.testing.allocator, io, &cu, pool.interface());
     defer env.deinit();
 
     var vm = try VM.initFunctionCall(std.testing.allocator, &env, env.getMethod("hello").?.script, &.{});
@@ -1105,6 +1107,8 @@ test "host call" {
     try std.testing.expectEqualStrings("world", try value.toString());
 }
 test "host call with args" {
+    const io = std.testing.io;
+
     const src = "function double(input) {return input*2;}";
     var diag: lola.compiler.Diagnostics = .init(std.testing.allocator);
     defer diag.deinit();
@@ -1114,7 +1118,7 @@ test "host call with args" {
     var pool = TestPool.init(std.testing.allocator);
     defer pool.deinit();
 
-    var env = try Environment.init(std.testing.allocator, &cu, pool.interface());
+    var env = try Environment.init(std.testing.allocator, io, &cu, pool.interface());
     defer env.deinit();
 
     const args = [_]Value{Value.initNumber(5)};
@@ -1128,6 +1132,8 @@ test "host call with args" {
     try std.testing.expectEqual(@as(f64, 10.0), try value.toNumber());
 }
 test "host call arg order" {
+    const io = std.testing.io;
+
     const src = "function sub(a,b) {return a-b;}";
     var diag: lola.compiler.Diagnostics = .init(std.testing.allocator);
     defer diag.deinit();
@@ -1137,7 +1143,7 @@ test "host call arg order" {
     var pool = TestPool.init(std.testing.allocator);
     defer pool.deinit();
 
-    var env = try Environment.init(std.testing.allocator, &cu, pool.interface());
+    var env = try Environment.init(std.testing.allocator, io, &cu, pool.interface());
     defer env.deinit();
 
     const args = [_]Value{ Value.initNumber(5), Value.initNumber(3) };
