@@ -65,6 +65,7 @@ pub const VM = struct {
     currentAsynCall: ?Environment.AsyncFunctionCall,
     objectPool: objects.ObjectPoolInterface,
     stats: Statistics = Statistics{},
+    storage: lola.runtime.value.ValueStorage,
 
     /// Initialize a new virtual machine that will run the given environment.
     pub fn init(allocator: std.mem.Allocator, environment: *Environment) !Self {

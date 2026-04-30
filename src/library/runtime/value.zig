@@ -14,6 +14,85 @@ pub const TypeId = enum(u8) {
     @"struct" = 7,
 };
 
+fn Storage(T: type) type {
+    return struct {
+        const Self = @This();
+        array: std.ArrayList(?T) = .empty,
+
+        pub const empty = Self{ .array = .empty };
+        pub const Entry = extern struct {
+            index: usize,
+            value: *T,
+        };
+        pub const ConstEntry = extern struct {
+            index: usize,
+            value: *const T,
+        };
+
+        pub fn getFree(self: *Self, allocator: std.mem.Allocator) std.mem.Allocator!Entry {
+            const index = try self.getFreeIndex(allocator);
+            return Entry{ .value = &self.array.items[index], .index = index };
+        }
+        pub fn getFreeConst(self: *const Self, allocator: std.mem.Allocator) std.mem.Allocator!ConstEntry {
+            const index = try self.getFreeIndex(allocator);
+            return ConstEntry{ .value = &self.array.items[index], .index = index };
+        }
+        pub fn getFreeIndex(self: *const Self, allocator: std.mem.Allocator) std.mem.Allocator!usize {
+            if (std.mem.findScalar(?T, self.array.items, null)) |index| {
+                return index;
+            } else {
+                try self.array.append(allocator, null);
+                return self.array.items.len - 1;
+            }
+        }
+
+        pub fn deinit(self: *Self, allocator: std.mem.Allocator) void {
+            self.array.deinit(allocator);
+        }
+    };
+}
+
+pub const ValueStorage = struct {
+    strings: Storage(String) = .empty,
+    arrays: Storage(Array) = .empty,
+    enumerators: Storage(Enumerator) = .empty,
+    structs: Storage(Struct) = .empty,
+    pub fn initString(storage: *ValueStorage, allocator: std.mem.Allocator, text: []const u8) std.mem.Allocator.Error!NewValue {
+        const entry = try storage.strings.getFree(allocator);
+        entry.value.* = try .init(allocator, text);
+        return NewValue{ .raw = @intCast(entry.index) };
+    }
+};
+
+pub const NewValue = extern struct {
+    const Self = @This();
+
+    raw: u32,
+    type_id: TypeId,
+
+    fn initAny(val: anytype, type_id: TypeId) Self {
+        return .{ .raw = @bitCast(val), .type_id = type_id };
+    }
+    pub fn initNumber(val: f32) Self {
+        return initAny(val);
+    }
+    pub fn initInteger(comptime T: type, val: T) Self {
+        comptime std.debug.assert(@typeInfo(T) == .int);
+        return Self{ .raw = @as(f32, @floatFromInt(val)), .type_id = TypeId.number };
+    }
+    pub fn deinit(self: *Self, storage: *ValueStorage) void {
+        switch (self.type_id) {
+            TypeId.string => {
+                const ptr = &storage.strings.array.items[self.raw];
+                var str = ptr.*.?;
+                str.deinit();
+                ptr.* = null;
+            },
+            // TODO
+        }
+    }
+};
+
 /// A struct that represents any possible LoLa value.
 pub const Value = union(TypeId) {
     const Self = @This();
@@ -653,16 +732,25 @@ pub const Array = struct {
     const Self = @This();
 
     allocator: std.mem.Allocator,
-    contents: []Value,
+    size: usize,
+    values: [*]u32,
+    types: [*]TypeId,
+
+    pub fn get(self: *const Self, index: usize) NewValue {
+        return NewValue{
+            .raw = self.values[0..self.size][index],
+            .type_id = self.types[0..self.size][index],
+        };
+    }
 
     pub fn init(allocator: std.mem.Allocator, size: usize) !Self {
         const arr = Self{
             .allocator = allocator,
-            .contents = try allocator.alloc(Value, size),
+            .size = size,
+            .values = try allocator.alloc(u32, size),
+            .types = try allocator.alloc(TypeId, size),
         };
-        for (arr.contents) |*item| {
-            item.* = Value{ .void = {} };
-        }
+        @memset(arr.types[0..size], TypeId.void);
         return arr;
     }
 
@@ -699,7 +787,7 @@ pub const Array = struct {
         return true;
     }
 
-    pub fn deinit(self: *Self) void {
+    pub fn deinit(self: *Self, storage: *ValueStorage) void {
         for (self.contents) |*item| {
             item.deinit();
         }
