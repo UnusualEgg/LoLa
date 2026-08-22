@@ -18,7 +18,7 @@ pub const ExecutionResultType = enum(u8) {
     completed = 2,
 };
 
-pub const ExecutionResult = enum(ExecutionResultType) {
+pub const ExecutionResult = union(ExecutionResultType) {
     /// The vm instruction quota was exhausted and the execution was terminated.
     exhausted,
 
